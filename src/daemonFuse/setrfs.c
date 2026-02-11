@@ -92,7 +92,35 @@ static int setrfs_getattr(const char *path, struct stat *stbuf)
 	stbuf->st_uid = context->uid;		// On indique l'utilisateur actuel comme proprietaire
 	stbuf->st_gid = context->gid;		// Idem pour le groupe
 
-	// TODO
+	stbuf->st_mode = S_IRWXU | S_IRWXG | S_IRWXO;	// 777
+	
+	if(strcmp(path, "/") == 0){
+		// Dossier racine
+		stbuf->st_mode |= S_IFDIR;		// Dossier
+		stbuf->st_nlink = 2;			// Nombre de liens
+		stbuf->st_size = 4096;			// Taille dossier (en octets)
+		return 0;
+	}
+	
+	// Fichier
+	stbuf->st_mode |= S_IFREG;		// Fichier
+	stbuf->st_nlink = 1;
+	
+	struct cacheData *cache = (struct cacheData*)context->private_data;
+	
+	// Verifier si fichier ouvert
+	pthread_mutex_lock(&(cache->mutex));
+	struct cacheFichier *fichier = trouverFichier(cache, path);
+	
+	if(fichier != NULL && fichier->countOpen > 0){
+		// Retourner vraie taille
+		stbuf->st_size = fichier->len;
+	} else {
+		stbuf->st_size = 104857601;	// Taille max + 1
+	}
+	pthread_mutex_unlock(&(cache->mutex));
+	
+	return 0;
 }
 
 
@@ -210,7 +238,8 @@ static int setrfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 // énoncées plus haut. Rappelez-vous en particulier qu'un pointeur est unique...
 static int setrfs_open(const char *path, struct fuse_file_info *fi)
 {
-		// TODO
+	
+	
 }
 
 
