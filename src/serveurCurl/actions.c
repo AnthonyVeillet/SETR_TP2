@@ -33,7 +33,7 @@ int verifierNouvelleConnexion(struct requete reqList[], int maxlen, int socket){
 
     if (fd == -1) {
         if (errno == EAGAIN) return 0;
-        
+
         else {
                 perror("Erreur en effectuant un accept() pour une nouvelle connexion");
                 exit(1);
@@ -106,6 +106,12 @@ int traiterConnexions(struct requete reqList[], int maxlen){
                     // Ici, vous devez tout d'abord initialiser un nouveau pipe à l'aide de la fonction pipe()
                     // Voyez man pipe pour plus d'informations sur son fonctionnement
                     // TODO
+                    
+                    int numPipe[2];
+                    if (pipe(numPipe) == -1) {
+                        perror("Erreur en effectuant un pipe() pour une nouvelle requete");
+                        exit(1);
+                    }
 
                     // Une fois le pipe initialisé, vous devez effectuer un fork, à l'aide de la fonction du même nom
                     // Cela divisera votre processus en deux nouveaux processus, un parent et un enfant.
@@ -119,6 +125,27 @@ int traiterConnexions(struct requete reqList[], int maxlen){
                     // Pour plus d'informations sur la fonction fork() et sur la manière de détecter si vous êtes dans
                     // le parent ou dans l'enfant, voyez man fork(2).
                     // TODO
+
+                    pid_t pidChild = fork();
+                    if (pidChild == -1) {
+                        perror("Erreur en effectuant un fork() pour une nouvelle requete");
+                        exit(1);
+                    }
+
+                    if (pidChild == 0) {
+                        // Processus enfant
+                        close(numPipe[0]); // Fermer l'extrémité de lecture du pipe
+                        executerRequete(numPipe[1], buffer); // Exécuter la requête en utilisant l'extrémité d'écriture du pipe
+                        close(numPipe[1]); // Fermer l'extrémité d'écriture du pipe
+                        exit(0); // Terminer le processus enfant
+                    } else {
+                        // Processus parent
+                        close(numPipe[1]);
+                        reqList[i].pid = pidChild;
+                        reqList[i].fdPipe = numPipe[0];
+                        reqList[i].status = REQ_STATUS_INPROGRESS;
+                        free(buffer);
+                    }
 
                 }
             }
