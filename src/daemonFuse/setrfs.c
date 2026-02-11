@@ -84,6 +84,7 @@ void* setrfs_init(struct fuse_conn_info *conn){
 // lignes dans d'autres fonctions.
 static int setrfs_getattr(const char *path, struct stat *stbuf)
 {
+	memset(stbuf, 0, sizeof(*stbuf));
 	// On récupère le contexte
 	struct fuse_context *context = fuse_get_context();
 
@@ -98,15 +99,33 @@ static int setrfs_getattr(const char *path, struct stat *stbuf)
 		// Dossier racine
 		stbuf->st_mode |= S_IFDIR;		// Dossier
 		stbuf->st_nlink = 2;			// Nombre de liens
-		stbuf->st_size = 4096;			// Taille dossier (en octets)
+		stbuf->st_size = 4096;			// Taille
 		return 0;
 	}
 	
-	// Fichier
-	stbuf->st_mode |= S_IFREG;		// Fichier
-	stbuf->st_nlink = 1;
-	
+	// Verif existe
 	struct cacheData *cache = (struct cacheData*)context->private_data;
+	if(cache->rootDirIndex != NULL){
+		const char *nom = path + 1;
+		char *indexCopy = strdup(cache->rootDirIndex);
+		char *token = strtok(indexCopy, "\n");
+		int trouve = 0;
+		while(token != NULL){
+			if(strcmp(token, nom) == 0){
+				trouve = 1;
+				break;
+			}
+			token = strtok(NULL, "\n");
+		}
+		free(indexCopy);
+		if(!trouve){
+			return -ENOENT;
+		}
+	}
+
+	// Fichier
+	stbuf->st_mode |= S_IFREG;
+	stbuf->st_nlink = 1;
 	
 	// Verifier si fichier ouvert
 	pthread_mutex_lock(&(cache->mutex));
@@ -238,8 +257,84 @@ static int setrfs_readdir(const char *path, void *buf, fuse_fill_dir_t filler,
 // énoncées plus haut. Rappelez-vous en particulier qu'un pointeur est unique...
 static int setrfs_open(const char *path, struct fuse_file_info *fi)
 {
-	
-	
+    struct fuse_context *context = fuse_get_context();
+    struct cacheData *cache = (struct cacheData*)context->private_data;
+    
+    pthread_mutex_lock(&(cache->mutex));
+    
+    // Fichier en cache?
+    struct cacheFichier *fichier = trouverFichier(cache, path);
+    
+    if(fichier != NULL) {
+        fichier->countOpen++;
+        fi->fh = (uint64_t)(uintptr_t)fichier;
+        pthread_mutex_unlock(&(cache->mutex));
+        return 0;
+    }
+    pthread_mutex_unlock(&(cache->mutex));
+    
+    // Telechargement
+	// Bad file number
+    int sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    if(sock == -1) {
+        return -EBADF;
+    }
+    
+    struct sockaddr_un sockInfo;
+    memset(&sockInfo, 0, sizeof(sockInfo));
+    sockInfo.sun_family = AF_UNIX;
+    strncpy(sockInfo.sun_path, unixSockPath, sizeof(sockInfo.sun_path) - 1);
+    
+	// No such file or directory 
+    if(connect(sock, (const struct sockaddr *)&sockInfo, sizeof(sockInfo)) < 0) {
+        close(sock);
+        return -ENOENT;
+    }
+    
+    // Envoi requête
+    struct msgReq req;
+    req.type = REQ_READ;
+    req.sizePayload = strlen(path) + 1;
+    envoyerMessage(sock, &req, (void*)path);
+    
+    struct msgRep rep;
+
+	if(read(sock, &rep, sizeof(rep)) <= 0) {
+        close(sock);
+        return -ENOENT;
+    }
+    
+	// Status réponse
+    if(rep.status != STATUS_OK || rep.sizePayload == 0) {
+        close(sock);
+        return -ENOENT;
+    }
+    
+    // Reception/allocation
+    char *fileContent = malloc(rep.sizePayload);
+    unsigned int totalRecu = 0;
+    while(totalRecu < rep.sizePayload) {
+        int octetsRecu = read(sock, fileContent + totalRecu, rep.sizePayload - totalRecu);
+        if(octetsRecu <= 0) break;
+        totalRecu += octetsRecu;
+    }
+    close(sock);
+    
+    // --> cache
+    pthread_mutex_lock(&(cache->mutex));
+    fichier = malloc(sizeof(struct cacheFichier));
+    fichier->nom = strdup(path);
+    fichier->data = fileContent;
+    fichier->len = rep.sizePayload;
+    fichier->offset = 0;
+    fichier->countOpen = 1;
+    fichier->prev = NULL;
+    fichier->next = NULL;
+    insererFichier(cache, fichier);
+    fi->fh = (uint64_t)(uintptr_t)fichier;
+    pthread_mutex_unlock(&(cache->mutex));
+    
+    return 0;
 }
 
 
@@ -263,7 +358,23 @@ static int setrfs_open(const char *path, struct fuse_file_info *fi)
 static int setrfs_read(const char *path, char *buf, size_t size, off_t offset,
 		    struct fuse_file_info *fi)
 {
-		// TODO
+	struct cacheFichier *fichier = (struct cacheFichier *)(uintptr_t)fi->fh;
+	
+	// Limites lecture
+	if(offset < 0 || offset >= (off_t)fichier->len) {
+		return 0;
+	}
+	
+	// Réduire taille
+	size_t maxRead = fichier->len - offset;
+	if(size > maxRead) {
+		size = maxRead;
+	}
+	
+	// Copie cache --> buffer
+	memcpy(buf, fichier->data + offset, size);
+	
+	return (int)size;
 }
 
 
@@ -272,7 +383,27 @@ static int setrfs_read(const char *path, char *buf, size_t size, off_t offset,
 // utilisée pour stocker ce fichier (pensez au buffer contenant son cache, son nom, etc.)
 static int setrfs_release(const char *path, struct fuse_file_info *fi)
 {
-		// TODO
+	struct fuse_context *context = fuse_get_context();
+	struct cacheData *cache = (struct cacheData*)context->private_data;
+	struct cacheFichier *fichier = (struct cacheFichier *)(uintptr_t)fi->fh;
+	
+	pthread_mutex_lock(&(cache->mutex));
+	
+	fichier->countOpen--;
+	
+	if(fichier->countOpen == 0) {
+		retirerFichier(cache, fichier);
+		
+		// Deja libere ailleurs
+		
+		//free(fichier->nom);
+		//free(fichier->data);
+		//free(fichier);
+	}
+	
+	pthread_mutex_unlock(&(cache->mutex));
+	
+	return 0;
 }
 
 
