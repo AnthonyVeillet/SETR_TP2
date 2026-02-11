@@ -180,4 +180,96 @@ int traiterTelechargements(struct requete reqList[], int maxlen){
     // Cette fonction doit retourner 0 si elle n'a lu aucune donnée supplémentaire, ou un nombre > 0 si c'est le cas.
 
     // TODO
+
+    int octetsTraites;
+    int tacheFait = 0;
+
+    // On parcourt la liste des connexions en cours
+    // On utilise select() pour determiner si des descripteurs de fichier sont disponibles
+    fd_set setPipes;
+    struct timeval tInfo;
+    tInfo.tv_sec = 0;
+    tInfo.tv_usec = SLEEP_TIME;
+    int maxFDPlusOne = 0;
+    FD_ZERO(&setPipes);
+
+    for(int i = 0; i < maxlen; ++i){
+        if(reqList[i].status == REQ_STATUS_INPROGRESS){
+            FD_SET(reqList[i].fdPipe, &setPipes);
+            maxFDPlusOne = (maxFDPlusOne < reqList[i].fdPipe+1) ? reqList[i].fdPipe+1 : maxFDPlusOne;
+        }
+    }
+
+    if(maxFDPlusOne){
+        // Au moins un pipe est en attente de données
+        // select attend comme premier argument le descripteur de fichier ayant la valeur maximale plus 1
+        int s = select(maxFDPlusOne, &setPipes, NULL, NULL, &tInfo);
+
+        if (s == -1) { perror("select"); exit(1); }
+
+        if(s > 0){
+            // Au moins un pipe est prêt à être lu
+            for(int i = 0; i < maxlen; ++i){
+                if(reqList[i].status == REQ_STATUS_INPROGRESS && FD_ISSET(reqList[i].fdPipe, &setPipes)){
+                    size_t sizePayload;
+                    char* buffer;
+
+                    // On lit d'abord la taille du contenu téléchargé
+                    octetsTraites = read(reqList[i].fdPipe, &sizePayload, sizeof(sizePayload));
+                    if(octetsTraites == -1){
+                        perror("Erreur en effectuant un read() sur un pipe pret (lecture de la taille du payload)");
+                        exit(1);
+                    }
+
+                    if (octetsTraites != sizeof(sizePayload)) {
+                        fprintf(stderr, "Erreur : lecture incomplète de la taille sur le pipe\n");
+                        exit(1);
+                    }
+                    
+                    if(sizePayload == 0){
+                        // Le téléchargement a échoué, on peut traiter la requête immédiatement
+                        reqList[i].len = 0;
+                        reqList[i].buf = NULL;
+                        reqList[i].status = REQ_STATUS_READYTOSEND;
+                        waitpid(reqList[i].pid, NULL, 0); // Rejoindre le processus enfant
+                        reqList[i].pid = 0;
+                        close(reqList[i].fdPipe); // Fermer le descripteur de l'extrémité du pipe possédée par le parent
+                        reqList[i].fdPipe = -1; // Marquer le descripteur du pipe comme fermé
+                        tacheFait++;
+                        continue;
+                    }
+
+                    buffer = malloc(sizePayload);
+                    if (!buffer) { perror("malloc"); exit(1); }
+
+                    // Puis on lit le contenu lui-même
+                    size_t totalOctetsLus = 0;
+                    while (totalOctetsLus < sizePayload) {
+                        octetsTraites = read(reqList[i].fdPipe, buffer + totalOctetsLus, sizePayload - totalOctetsLus);
+                        if(octetsTraites == -1){
+                            perror("Erreur en effectuant un read() sur un pipe pret (lecture du payload)");
+                            exit(1);
+                        }
+                        if(octetsTraites == 0){
+                            fprintf(stderr, "Erreur : fin de fichier inattendue sur le pipe\n");
+                            exit(1);
+                        }
+                        totalOctetsLus += octetsTraites;
+                    }
+
+                    reqList[i].len = sizePayload;
+                    reqList[i].buf = buffer;
+                    reqList[i].status = REQ_STATUS_READYTOSEND;
+                    tacheFait++;
+
+                    waitpid(reqList[i].pid, NULL, 0); // Rejoindre le processus enfant
+                    reqList[i].pid = 0;
+                    close(reqList[i].fdPipe); // Fermer le descripteur de l'extrémité du pipe possédée par le parent
+                    reqList[i].fdPipe = -1; // Marquer le descripteur du pipe comme fermé
+                }
+            }
+        }
+    }
+
+    return tacheFait;
 }
