@@ -1,4 +1,10 @@
-.vscode/
-build/
+# VSCode (partout)
+**/.vscode/
+
+# Build directories (partout)
+**/build/
+
+# Fichiers compilés
 *.o
 *.out
+
