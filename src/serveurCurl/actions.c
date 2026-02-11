@@ -22,6 +22,28 @@ int verifierNouvelleConnexion(struct requete reqList[], int maxlen, int socket){
     // Cette fonction doit retourner 0 si elle n'a pas acceptée de nouvelle connexion, ou 1 dans le cas contraire.
 
     // TODO
+
+    int idxReq = nouvelleRequete(reqList, maxlen);
+
+    if (idxReq == -1) {
+        return 0;
+    }
+
+    int fd = accept(socket, NULL, NULL);
+
+    if (fd == -1) {
+        if (errno == EAGAIN) return 0;
+        
+        else {
+                perror("Erreur en effectuant un accept() pour une nouvelle connexion");
+                exit(1);
+            }
+    }
+
+    reqList[idxReq].fdSocket = fd;
+    reqList[idxReq].status = REQ_STATUS_LISTEN;
+
+    return 1;
 }
 
 int traiterConnexions(struct requete reqList[], int maxlen){
