@@ -42,23 +42,16 @@ const char* statusDesc[] = {"Inoccupe", "Connexion client etablie", "En cours de
 // Contient les requetes en cours de traitement
 struct requete reqList[MAX_CONNEXIONS];
 
+static volatile sig_atomic_t g_dumpStats = 0;
+
 
 void gererSignal(int signo) {
     // Fonction affichant des statistiques sur les tâches en cours
     // lorsque SIGUSR2 (et _seulement_ SIGUSR2) est reçu
     // TODO
-    if(signo != SIGUSR2){
-        fprintf(stderr, "Signal inattendu reçu : %i\n", signo);
-        return;
+    if (signo == SIGUSR2) {
+        g_dumpStats = 1;
     }
-
-    for(int i = 0; i < MAX_CONNEXIONS; ++i){
-        if(reqList[i].status != REQ_STATUS_INACTIVE){
-            printf("Requete %i : status = %s, pid = %i, fdPipe = %i, fdSocket = %i, len = %zu\n",
-                i, statusDesc[reqList[i].status], reqList[i].pid, reqList[i].fdPipe, reqList[i].fdSocket, reqList[i].len);
-        }
-    }
-    return;
 }
 
 
@@ -80,7 +73,7 @@ int main(int argc, char* argv[]){
     memset(&sa, 0, sizeof(sa));
     sa.sa_handler = gererSignal;
     sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
+    sa.sa_flags = SA_RESTART;
 
 
     if(sigaction(SIGUSR2, &sa, NULL) == -1){
@@ -154,6 +147,19 @@ int main(int argc, char* argv[]){
     // Boucle principale du programme
     int tacheRealisee;
     while(1){
+
+        if (g_dumpStats) {
+            g_dumpStats = 0;
+
+            for (int i = 0; i < MAX_CONNEXIONS; ++i) {
+                if (reqList[i].status != REQ_STATUS_INACTIVE) {
+                    printf("Requete %i : status = %s, pid = %i, fdPipe = %i, fdSocket = %i, len = %zu\n",
+                        i, statusDesc[reqList[i].status], reqList[i].pid, reqList[i].fdPipe, reqList[i].fdSocket, reqList[i].len);
+                }
+            }
+        }
+
+
         // On vérifie si de nouveaux clients attendent pour se connecter
         tacheRealisee = verifierNouvelleConnexion(reqList, MAX_CONNEXIONS, sock);
 

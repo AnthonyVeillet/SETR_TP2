@@ -32,13 +32,19 @@ int verifierNouvelleConnexion(struct requete reqList[], int maxlen, int socket){
     int fd = accept(socket, NULL, NULL);
 
     if (fd == -1) {
-        if (errno == EAGAIN) return 0;
+        if (errno == EINTR) return 0;  // ou retry
 
-        else {
-                perror("Erreur en effectuant un accept() pour une nouvelle connexion");
-                exit(1);
-            }
+        #if EAGAIN == EWOULDBLOCK
+            if (errno == EAGAIN) return 0;
+        #else
+            if (errno == EAGAIN || errno == EWOULDBLOCK) return 0;
+        #endif
+
+
+        perror("accept");
+        exit(1);
     }
+
 
     reqList[idxReq].fdSocket = fd;
     reqList[idxReq].status = REQ_STATUS_LISTEN;
@@ -79,6 +85,11 @@ int traiterConnexions(struct requete reqList[], int maxlen){
         // Au moins un socket est en attente d'une requête
         // select attend comme premier argument le descripteur de fichier ayant la valeur maximale plus 1
         int s = select(maxFileDescriptorPlusOne, &setSockets, NULL, NULL, &tInfo);
+        if (s == -1) {
+            if (errno == EINTR) return 0;
+            perror("select");
+            exit(1);
+        }
         if(s > 0){
             // Au moins un socket est prêt à être lu
             for(int i = 0; i < maxlen; ++i){
@@ -90,14 +101,20 @@ int traiterConnexions(struct requete reqList[], int maxlen){
                     if(VERBOSE)
                         printf("Lecture de la requete sur le socket %i\n", reqList[i].fdSocket);
                     octetsTraites = read(reqList[i].fdSocket, buffer, sizeof(req));
-                    if(octetsTraites == -1){
-                        perror("Erreur en effectuant un read() sur un socket pret");
+                    if (octetsTraites == -1) {
+                        if (errno == EINTR) { free(buffer); return 0; } // ou retry
+                        perror("read");
                         exit(1);
                     }
 
                     memcpy(&req, buffer, sizeof(req));
                     buffer = realloc(buffer, sizeof(req) + req.sizePayload);
                     octetsTraites = read(reqList[i].fdSocket, buffer + sizeof(req), req.sizePayload);
+                    if (octetsTraites == -1) {
+                        if (errno == EINTR) { free(buffer); return 0; } // ou retry
+                        perror("read");
+                        exit(1);
+                    }
                     if(VERBOSE){
                         printf("\t%i octets lus au total\n", req.sizePayload + sizeof(req));
                         printf("\tContenu de la requete : %s\n", buffer + sizeof(req));
@@ -205,7 +222,12 @@ int traiterTelechargements(struct requete reqList[], int maxlen){
         // select attend comme premier argument le descripteur de fichier ayant la valeur maximale plus 1
         int s = select(maxFDPlusOne, &setPipes, NULL, NULL, &tInfo);
 
-        if (s == -1) { perror("select"); exit(1); }
+        if (s == -1) {
+            if (errno == EINTR) return 0;
+            perror("select");
+            exit(1);
+        }
+
 
         if(s > 0){
             // Au moins un pipe est prêt à être lu
@@ -216,10 +238,12 @@ int traiterTelechargements(struct requete reqList[], int maxlen){
 
                     // On lit d'abord la taille du contenu téléchargé
                     octetsTraites = read(reqList[i].fdPipe, &sizePayload, sizeof(sizePayload));
-                    if(octetsTraites == -1){
-                        perror("Erreur en effectuant un read() sur un pipe pret (lecture de la taille du payload)");
+                    if (octetsTraites == -1) {
+                        if (errno == EINTR) return tacheFait;
+                        perror("read");
                         exit(1);
                     }
+
 
                     if (octetsTraites != sizeof(sizePayload)) {
                         fprintf(stderr, "Erreur : lecture incomplète de la taille sur le pipe\n");
@@ -247,9 +271,11 @@ int traiterTelechargements(struct requete reqList[], int maxlen){
                     while (totalOctetsLus < sizePayload) {
                         octetsTraites = read(reqList[i].fdPipe, buffer + totalOctetsLus, sizePayload - totalOctetsLus);
                         if(octetsTraites == -1){
+                            if (errno == EINTR) continue;
                             perror("Erreur en effectuant un read() sur un pipe pret (lecture du payload)");
                             exit(1);
                         }
+
                         if(octetsTraites == 0){
                             fprintf(stderr, "Erreur : fin de fichier inattendue sur le pipe\n");
                             exit(1);
