@@ -47,7 +47,18 @@ void gererSignal(int signo) {
     // Fonction affichant des statistiques sur les tâches en cours
     // lorsque SIGUSR2 (et _seulement_ SIGUSR2) est reçu
     // TODO
+    if(signo != SIGUSR2){
+        fprintf(stderr, "Signal inattendu reçu : %i\n", signo);
+        return;
+    }
 
+    for(int i = 0; i < MAX_CONNEXIONS; ++i){
+        if(reqList[i].status != REQ_STATUS_INACTIVE){
+            printf("Requete %i : status = %s, pid = %i, fdPipe = %i, fdSocket = %i, len = %zu\n",
+                i, statusDesc[reqList[i].status], reqList[i].pid, reqList[i].fdPipe, reqList[i].fdSocket, reqList[i].len);
+        }
+    }
+    return;
 }
 
 
