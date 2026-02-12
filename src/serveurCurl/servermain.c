@@ -76,7 +76,17 @@ int main(int argc, char* argv[]){
 
     // TODO
     // Implémentez ici le code permettant d'attacher la fonction "gereSignal" au signal SIGUSR2
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = gererSignal;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_flags = 0;
 
+
+    if(sigaction(SIGUSR2, &sa, NULL) == -1){
+        fprintf(stderr, "Erreur lors de l'attachement du signal SIGUSR2 : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // TODO
     // Création et initialisation du socket (il y a 5 étapes)
@@ -85,25 +95,59 @@ int main(int argc, char* argv[]){
     //      Finalement, copiez le chemin vers le socket UNIX dans le bon attribut de la structure
     //      Voyez man unix(7) pour plus de détails sur cette structure
 
+    struct sockaddr_un addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sun_family = AF_UNIX;
+    strncpy(addr.sun_path, path, sizeof(addr.sun_path) - 1);
+
     // TODO
     // 2) Créez le socket en utilisant la fonction socket() et affectez-le à une variable nommée sock
     //      Vérifiez si sa création a été effectuée avec succès, sinon quittez le processus en affichant l'erreur
+
+    int sock;
+    sock = socket(AF_UNIX, SOCK_STREAM, 0);
+    if(sock == -1){
+        fprintf(stderr, "Erreur lors de la creation du socket : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // TODO
     // 3) Utilisez fcntl() pour mettre le socket en mode non-bloquant
     //      Vérifiez si l'opération a été effectuée avec succès, sinon quittez le processus en affichant l'erreur
     //      Voyez man fcntl pour plus de détails sur le champ à modifier
 
+    int flags = fcntl(sock, F_GETFL, 0);
+    if(flags == -1){
+        fprintf(stderr, "Erreur lors de la récupération des flags du socket : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+    int rc = fcntl(sock, F_SETFL, flags | O_NONBLOCK);
+    if(rc == -1){
+        fprintf(stderr, "Erreur lors de la mise en mode non-bloquant du socket : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
+
+
     // TODO
     // 4) Faites un bind sur le socket
     //      Vérifiez si l'opération a été effectuée avec succès, sinon quittez le processus en affichant l'erreur
     //      Voyez man bind(2) pour plus de détails sur cette opération
+
+    if(bind(sock, (struct sockaddr*)&addr, sizeof(addr)) == -1){
+        fprintf(stderr, "Erreur lors du bind du socket : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // TODO
     // 5) Mettez le socket en mode écoute (listen), en acceptant un maximum de MAX_CONNEXIONS en attente
     //      Vérifiez si l'opération a été effectuée avec succès, sinon quittez le processus en affichant l'erreur
     //      Voyez man listen pour plus de détails sur cette opération
 
+    if(listen(sock, MAX_CONNEXIONS) == -1){
+        fprintf(stderr, "Erreur lors du listen du socket : %s\n", strerror(errno));
+        exit(EXIT_FAILURE);
+    }
 
     // Initialisation du socket UNIX terminée!
 
