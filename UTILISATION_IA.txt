@@ -3,7 +3,7 @@ Question 1 : Avez-vous utilisé un ou des outils d'IA pour ce laboratoire, même
 	Oui
 
 ---Benoit Audet--
-	?
+	Oui
 
 
 Répondez aux questions suivantes seulement si vous avez répondu "oui" à la question précédente.
@@ -12,11 +12,15 @@ Question 2 : Quels modèles (ex., Claude Opus, Gemini Pro, GPT-Codex, etc.)?
 ---Anthony Veillet--
 	ChatGPT
 
+---Benoit Audet--
+	Gemini Pro
+Claude Opus
+
 
 Question 3 : Pour la réalisation de quelles tâches en particulier? Donnez un exemple de "prompt" utilisé et de résultat.
 ---Anthony Veillet--
 	Pour me guider sur les étapes à faire pour réaliser le projet et pour du débug lorsque le code a des erreurs. Exemple de prompt :
-	Vvoici mon travail a faire.
+	Voici mon travail a faire.
 
 	1) Analyse l'énoncé du travail, soit Enonce.pdf. Je suis responsable de la partie 1, soit la partie de serveurCurl.
 
@@ -26,9 +30,15 @@ Question 3 : Pour la réalisation de quelles tâches en particulier? Donnez un e
 
 	4) Je veux que tu sois mon professeur et que tu favorises mon apprentissage, donc ne me donne pas le code complet. Je veux que tu me guide pour m'aider a comprendre et a faire le code. Mon but est d'apprendre. Ainsi, faire moi un plan de quoi faire, avec des étapes. Je vais ensuite pouvoir te questionner sur chacune des étapes, au fur et a mesure que je fais le travail.
 
+---Benoit Audet---
+J'ai une erreur de Numerical Value, trouves tu une cause au problème dans le module?
+
 
 Question 4 : Avez-vous rencontré des problèmes lors de l'utilisation de l'IA (mauvaise compréhension des commandes fournies, résultats erronés, etc.)? Qu'avez-vous fait pour les régler?
 ---Anthony Veillet--
 	Non
+
+---Benoit Audet---
+Oui, j'ai mal compris le rôle du script de synchronisation avec le RPi. J'essayais de déboguer en utilisant Opus, mais j'oubliais que le script ne compilait pas le fichier modifié, il synchronisait simplement l'ancien.
 
 
